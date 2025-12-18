@@ -6,7 +6,12 @@ using System.Threading.Tasks;
 
 namespace DependencyInjection_From_Scratch.Services
 {
-    internal interface ITestService
+    public interface INestedService
     {
+    }
+
+    public class NestedService : INestedService
+    {
+        public NestedService() { }
     }
 }
