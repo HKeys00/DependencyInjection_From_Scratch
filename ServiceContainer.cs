@@ -68,5 +68,18 @@
 
             _services.Add(typeof(TInterface), service);
         }
+
+        private object? ResolveService(ServiceLifetimes lifetime, Type serviceType)
+        {
+            switch (lifetime)
+            {
+                case ServiceLifetimes.Transient:
+                case ServiceLifetimes.Scoped:
+                    return;
+
+                case ServiceLifetimes.Singleton:
+                    return 
+            }
+        }
     }
 }

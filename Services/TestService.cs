@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace DependencyInjection_From_Scratch
+namespace DependencyInjection_From_Scratch.Services
 {
     internal class TestService : ITestService
     {
