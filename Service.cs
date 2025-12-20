@@ -4,7 +4,7 @@
     {
         public ServiceLifetimes Lifetime { get; set; }
 
-        public Type Interface { get; set; }
+        public Type? Interface { get; set; }
 
         public Type Implementation { get; set; }
 

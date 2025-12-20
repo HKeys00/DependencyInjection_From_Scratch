@@ -17,15 +17,29 @@ namespace DependencyInjection_From_Scratch
             AddService<TInterface, TImplementation>(ServiceLifetimes.Transient);
         }
 
+        public void AddTransient<TImplementation>() where TImplementation : class
+        {
+            AddService<TImplementation>(ServiceLifetimes.Transient);
+        }
+
         public void AddScoped<TInterface, TImplementation>() where TImplementation : class
         {
             AddService<TInterface, TImplementation>(ServiceLifetimes.Scoped);
+        }
+
+        public void AddScoped<TImplementation>() where TImplementation : class
+        {
+            AddService<TImplementation>(ServiceLifetimes.Scoped);
         }
 
         public void AddSingleton<TInterface, TImplementation>() where TImplementation : class
         {
             AddService<TInterface, TImplementation>(ServiceLifetimes.Singleton);
             _singletonInstances.Add(typeof(TImplementation), CreateServiceInstance(typeof(TImplementation)));
+        }
+        public void AddSingleton<TImplementation>() where TImplementation : class
+        {
+            AddService<TImplementation>(ServiceLifetimes.Singleton);
         }
 
         public object GetRequiredService(Type serviceType)
@@ -46,10 +60,9 @@ namespace DependencyInjection_From_Scratch
             return instance;
         }
 
-        public object? GetService(Type serviceType)
+        public object? Resolve<T>() where T : class
         {
-            _services.TryGetValue(serviceType, out var service);
-            return Activator.CreateInstance(service.Implementation);
+            return GetService(typeof(T));
         }
 
         public T GetService<T>()
@@ -57,6 +70,17 @@ namespace DependencyInjection_From_Scratch
             _services.TryGetValue(typeof(T), out var service);
             //return Activator.CreateInstance(service.Implementation);
             throw new NotImplementedException();
+        }
+
+        private object? GetService(Type serviceType)
+        {
+            _services.TryGetValue(serviceType, out var service);
+            if (service == null) {
+                return null;
+            }
+
+            var instance = ResolveService(service.Lifetime, service.Implementation);
+            return instance;
         }
 
         private void AddService<TInterface, TImplementation>(ServiceLifetimes lifetime) where TImplementation : class
@@ -68,7 +92,19 @@ namespace DependencyInjection_From_Scratch
                 Implementation = typeof(TImplementation),
             };
 
-            _services.Add(typeof(TInterface), service);
+            _services[typeof(TInterface)] = service;
+        }
+
+        private void AddService<TImplementation>(ServiceLifetimes lifetime) where TImplementation : class
+        {
+            var service = new Service()
+            {
+                Lifetime = lifetime,
+                Interface = null,
+                Implementation = typeof(TImplementation),
+            };
+
+            _services[typeof(TImplementation)] = service;
         }
 
         private object? ResolveService(ServiceLifetimes lifetime, Type implementationType)
