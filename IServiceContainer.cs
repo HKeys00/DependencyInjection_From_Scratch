@@ -11,7 +11,7 @@
 
         T GetService<T>();
 
-        public object? Resolve<T>() where T : class;
+        public T? Resolve<T>() where T : class;
         public object GetRequiredService (Type serviceType);
     }
 }

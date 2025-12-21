@@ -60,9 +60,9 @@ namespace DependencyInjection_From_Scratch
             return instance;
         }
 
-        public object? Resolve<T>() where T : class
+        public T? Resolve<T>() where T : class
         {
-            return GetService(typeof(T));
+            return GetService(typeof(T)) as T;
         }
 
         public T GetService<T>()
