@@ -172,6 +172,8 @@ namespace Test
         public void Resolve_MultipleBestConstructors_Throws()
         {
             var container = new ServiceContainer();
+            container.AddTransient<IC, C>();
+            container.AddTransient<ID, D>();
             container.AddTransient<AmbiguousCtor>();
 
             Assert.Throws<InvalidOperationException>(() => container.Resolve<AmbiguousCtor>());

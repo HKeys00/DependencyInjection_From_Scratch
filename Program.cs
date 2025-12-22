@@ -10,7 +10,7 @@ var container = new ServiceContainer();
 container.AddScoped<ITestService, TestService>();
 container.AddScoped<INestedService, NestedService>();
 //var m = container.GetService<ITestService>();
-var m = container.GetRequiredService(typeof(ITestService));
+//var m = container.GetRequiredService(typeof(ITestService));
 
 Console.ReadLine();
 

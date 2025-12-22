@@ -4,11 +4,14 @@ namespace DependencyInjection_From_Scratch
 {
     public class ServiceContainer : IServiceContainer
     {
+        private Stack<Type> _resolveStack;
+        
         private Dictionary<Type, Service> _services;
         private Dictionary<Type, object> _singletonInstances;
 
         public ServiceContainer()
         {
+            _resolveStack = new Stack<Type>();
             _services = new Dictionary<Type, Service>();
             _singletonInstances = new Dictionary<Type, object>();
         }
@@ -42,7 +45,7 @@ namespace DependencyInjection_From_Scratch
             AddService<TImplementation>(ServiceLifetimes.Singleton);
         }
 
-        public object GetRequiredService(Type serviceType)
+        private object GetRequiredService(Type serviceType)
         {
             _services.TryGetValue(serviceType, out var service);
             if (service == null)
@@ -50,7 +53,7 @@ namespace DependencyInjection_From_Scratch
                 throw new InvalidOperationException($"Cannot resolve service for {serviceType}");
             }
 
-            var instance = ResolveService(service.Lifetime, service.Implementation);
+            var instance = ResolveService(service);
 
             if (instance == null)
             {
@@ -62,7 +65,8 @@ namespace DependencyInjection_From_Scratch
 
         public T? Resolve<T>() where T : class
         {
-            return GetService(typeof(T)) as T;
+            _resolveStack = new Stack<Type>();
+            return GetRequiredService(typeof(T)) as T;
         }
 
         public T GetService<T>()
@@ -70,17 +74,6 @@ namespace DependencyInjection_From_Scratch
             _services.TryGetValue(typeof(T), out var service);
             //return Activator.CreateInstance(service.Implementation);
             throw new NotImplementedException();
-        }
-
-        private object? GetService(Type serviceType)
-        {
-            _services.TryGetValue(serviceType, out var service);
-            if (service == null) {
-                return null;
-            }
-
-            var instance = ResolveService(service.Lifetime, service.Implementation);
-            return instance;
         }
 
         private void AddService<TInterface, TImplementation>(ServiceLifetimes lifetime) where TImplementation : class
@@ -107,16 +100,28 @@ namespace DependencyInjection_From_Scratch
             _services[typeof(TImplementation)] = service;
         }
 
-        private object? ResolveService(ServiceLifetimes lifetime, Type implementationType)
+        private object? ResolveService(Service service)
         {
-            switch (lifetime)
+            switch (service.Lifetime)
             {
                 case ServiceLifetimes.Transient:
                 case ServiceLifetimes.Scoped:
-                    return CreateServiceInstance(implementationType);
+                    return CreateServiceInstance(service.Implementation);
 
                 case ServiceLifetimes.Singleton:
-                    return _singletonInstances.TryGetValue(implementationType, out var singleton);
+                    _singletonInstances.TryGetValue(service.Implementation, out var singleton);
+                    if (singleton == null)
+                    {
+                        var instance = CreateServiceInstance(service.Implementation);
+                        if (instance == null)
+                        {
+                            throw new InvalidOperationException("Service could not be created");
+                        }
+
+                        _singletonInstances[service.Implementation] = instance;
+                    }
+
+                    return _singletonInstances[service.Implementation];
 
                 default: 
                     return null;
@@ -127,39 +132,43 @@ namespace DependencyInjection_From_Scratch
         {
             var constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
 
-            int mostParametersMatching = 0;
-            int bestSuitedContructorIndex = -1;
+            List<ConstructorInfo> suitableConstructors = new List<ConstructorInfo>();
 
-            for (int i = 0; i < constructors.Length; i++)
+            foreach (var c in constructors)
             {
-                var parameters = constructors[i].GetParameters();
+                var parameters = c.GetParameters();
                 int paramCount = parameters.Length;
                 int foundCount = parameters.Count(p => _services.ContainsKey(p.ParameterType));
 
                 if (paramCount == foundCount)
                 {
-                    if (bestSuitedContructorIndex == -1)
-                    {
-                        bestSuitedContructorIndex = i;
-                    }
-
-                    if (foundCount > mostParametersMatching)
-                    {
-                        mostParametersMatching = foundCount;
-                        bestSuitedContructorIndex = i;
-                    }
+                    suitableConstructors.Add(c);
                 }
             }
 
-            if (bestSuitedContructorIndex == -1)
+            if (suitableConstructors.Count == 0)
             {
                 throw new InvalidOperationException($"Failed to find suitable constructor for Type: {type}");
             }
 
-            var constructor = constructors[bestSuitedContructorIndex];
+            var parameterCounts = suitableConstructors.Select(c => c.GetParameters().Length).ToList();
+            int max = parameterCounts.Max();
+            if (parameterCounts.Count(x => x == max) > 1)
+            {
+                throw new InvalidOperationException($"Multiple valid constructors found for {type}");
+            }
+
+            var constructor = suitableConstructors[parameterCounts.IndexOf(max)];
             List<object> parameterInstances = new List<object>();
             foreach (var parameter in constructor.GetParameters())
             {
+                if (_resolveStack.Contains(parameter.ParameterType))
+                {
+                    throw new InvalidOperationException(
+                        $"Cyclical dependency detected: {parameter.ParameterType} for {type}");
+                }
+
+                _resolveStack.Push(parameter.ParameterType);
                 var instance = GetRequiredService(parameter.ParameterType);
 
                 if (instance == null)
@@ -170,7 +179,7 @@ namespace DependencyInjection_From_Scratch
                 parameterInstances.Add(instance);
             }
 
-            return constructors[bestSuitedContructorIndex].Invoke(parameterInstances.ToArray());
+            return constructor.Invoke(parameterInstances.ToArray());
         }
     }
 }

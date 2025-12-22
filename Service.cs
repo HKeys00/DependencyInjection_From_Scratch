@@ -7,7 +7,5 @@
         public Type? Interface { get; set; }
 
         public Type Implementation { get; set; }
-
-        public Action<object> Factory { get; set; }
     }
 }

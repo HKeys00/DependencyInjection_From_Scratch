@@ -39,7 +39,7 @@ namespace DependencyInjection_From_Scratch.Services
     {
     }
 
-    public class D : ID
+    public class D : IC
     {
     }
 
