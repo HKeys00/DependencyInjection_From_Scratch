@@ -1,11 +1,14 @@
-﻿using System.Reflection;
+﻿using System.Collections;
+using System.Linq.Expressions;
+using System.Reflection;
 
 namespace DependencyInjection_From_Scratch
 {
     public class ServiceContainer : IServiceContainer
     {
         private Stack<Type> _resolveStack;
-        
+
+        private Dictionary<Type, Func<object>> _expressionGetters;
         private Dictionary<Type, Service> _services;
         private Dictionary<Type, object> _singletonInstances;
 
@@ -38,7 +41,7 @@ namespace DependencyInjection_From_Scratch
         public void AddSingleton<TInterface, TImplementation>() where TImplementation : class
         {
             AddService<TInterface, TImplementation>(ServiceLifetimes.Singleton);
-            _singletonInstances.Add(typeof(TImplementation), CreateServiceInstance(typeof(TImplementation)));
+            _singletonInstances.Add(typeof(TImplementation), CreateServiceInstanceReflection(typeof(TImplementation)));
         }
         public void AddSingleton<TImplementation>() where TImplementation : class
         {
@@ -106,13 +109,14 @@ namespace DependencyInjection_From_Scratch
             {
                 case ServiceLifetimes.Transient:
                 case ServiceLifetimes.Scoped:
-                    return CreateServiceInstance(service.Implementation);
+                    return CreateServiceInstanceReflection(service.Implementation);
 
                 case ServiceLifetimes.Singleton:
                     _singletonInstances.TryGetValue(service.Implementation, out var singleton);
                     if (singleton == null)
                     {
-                        var instance = CreateServiceInstance(service.Implementation);
+                        var instance = CreateServiceInstanceExpression(service.Implementation);
+                        //var instance = CreateServiceInstanceReflection(service.Implementation);
                         if (instance == null)
                         {
                             throw new InvalidOperationException("Service could not be created");
@@ -128,7 +132,90 @@ namespace DependencyInjection_From_Scratch
             }
         }
 
-        private object? CreateServiceInstance(Type type)
+        private object? CreateServiceInstanceReflection(Type type)
+        {
+            var constructor = GetMostSuitableConstructor(type);
+            List<object> parameterInstances = new List<object>();
+            foreach (var parameter in constructor.GetParameters())
+            {
+                if (_resolveStack.Contains(parameter.ParameterType))
+                {
+                    throw new InvalidOperationException(
+                        $"Cyclical dependency detected: {parameter.ParameterType} for {type}");
+                }
+
+                _resolveStack.Push(parameter.ParameterType);
+                var instance = GetRequiredService(parameter.ParameterType);
+
+                if (instance == null)
+                {
+                    throw new InvalidOperationException($"Failed to create instance for Type: {type}");
+                }
+
+                parameterInstances.Add(instance);
+            }
+
+            return constructor.Invoke(parameterInstances.ToArray());
+        }
+
+        private object? CreateServiceInstanceExpression(Type type)
+        {
+            if (_expressionGetters.TryGetValue(type, out var getter))
+            {
+                return getter.Invoke();
+            }
+
+            var foundConstructor = GetMostSuitableConstructor(type);
+            List<object> parameterInstances = new List<object>();
+            foreach (var parameter in foundConstructor.GetParameters())
+            {
+                if (_resolveStack.Contains(parameter.ParameterType))
+                {
+                    throw new InvalidOperationException(
+                        $"Cyclical dependency detected: {parameter.ParameterType} for {type}");
+                }
+
+                _resolveStack.Push(parameter.ParameterType);
+                var instance = GetRequiredService(parameter.ParameterType);
+
+                if (instance == null)
+                {
+                    throw new InvalidOperationException($"Failed to create instance for Type: {type}");
+                }
+
+                parameterInstances.Add(instance);
+            }
+
+            var thisExpr = Expression.Constant(this); 
+            var resolveStackField = Expression.Field(thisExpr, "_resolveStack");
+
+            var constructor = Expression.Constant(foundConstructor);
+            var stack = Expression.Variable(typeof(Stack<Type>), "stack");
+            var parameters = Expression.Variable(typeof(ParameterInfo), "parameters");
+
+            var getParametersCall =
+                Expression.Call(constructor, nameof(ConstructorInfo.GetParameters), Type.EmptyTypes);
+            var assignParameters = Expression.Assign(parameters, getParametersCall);
+            var assignStack = Expression.Assign(stack, resolveStackField);
+
+            var 
+
+
+
+
+            var containsTest = Expression.Call(stack, nameof(Stack.Contains), )
+            var containsCondition = Expression.Condition()
+
+
+
+
+            var service = Expression.Constant(constructor.Invoke(parameterInstances.ToArray()));
+//            var instance = Expression.Constant(constructor.Invoke())
+
+            return null;
+        }
+
+        private ConstructorInfo GetMostSuitableConstructor(Type type)
         {
             var constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
 
@@ -158,28 +245,7 @@ namespace DependencyInjection_From_Scratch
                 throw new InvalidOperationException($"Multiple valid constructors found for {type}");
             }
 
-            var constructor = suitableConstructors[parameterCounts.IndexOf(max)];
-            List<object> parameterInstances = new List<object>();
-            foreach (var parameter in constructor.GetParameters())
-            {
-                if (_resolveStack.Contains(parameter.ParameterType))
-                {
-                    throw new InvalidOperationException(
-                        $"Cyclical dependency detected: {parameter.ParameterType} for {type}");
-                }
-
-                _resolveStack.Push(parameter.ParameterType);
-                var instance = GetRequiredService(parameter.ParameterType);
-
-                if (instance == null)
-                {
-                    throw new InvalidOperationException($"Failed to create instance for Type: {type}");
-                }
-
-                parameterInstances.Add(instance);
-            }
-
-            return constructor.Invoke(parameterInstances.ToArray());
+            return suitableConstructors[parameterCounts.IndexOf(max)];
         }
     }
 }
