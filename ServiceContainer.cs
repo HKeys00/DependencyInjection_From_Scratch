@@ -8,7 +8,7 @@ namespace DependencyInjection_From_Scratch
     {
         private Stack<Type> _resolveStack;
 
-        private Dictionary<Type, Func<object>> _expressionGetters;
+        private Dictionary<Type, Func<Stack<Type>, ServiceContainer, object>> _expressionGetters;
         private Dictionary<Type, Service> _services;
         private Dictionary<Type, object> _singletonInstances;
 
@@ -17,6 +17,7 @@ namespace DependencyInjection_From_Scratch
             _resolveStack = new Stack<Type>();
             _services = new Dictionary<Type, Service>();
             _singletonInstances = new Dictionary<Type, object>();
+            _expressionGetters = new Dictionary<Type, Func<Stack<Type>, ServiceContainer, object>>();
         }
         public void AddTransient<TInterface, TImplementation>() where TImplementation : class
         {
@@ -109,7 +110,7 @@ namespace DependencyInjection_From_Scratch
             {
                 case ServiceLifetimes.Transient:
                 case ServiceLifetimes.Scoped:
-                    return CreateServiceInstanceReflection(service.Implementation);
+                    return CreateServiceInstanceExpression(service.Implementation);
 
                 case ServiceLifetimes.Singleton:
                     _singletonInstances.TryGetValue(service.Implementation, out var singleton);
@@ -162,57 +163,60 @@ namespace DependencyInjection_From_Scratch
         {
             if (_expressionGetters.TryGetValue(type, out var getter))
             {
-                return getter.Invoke();
+                return getter.Invoke(_resolveStack, this);
             }
 
             var foundConstructor = GetMostSuitableConstructor(type);
-            List<object> parameterInstances = new List<object>();
-            foreach (var parameter in foundConstructor.GetParameters())
+            var param = foundConstructor.GetParameters();
+            var stack = Expression.Parameter(typeof(Stack<Type>), "resolveStack");
+            var container = Expression.Parameter(typeof(ServiceContainer), "container");
+            var parameterExpressions = new List<Expression>();
+
+            foreach (var parameter in param)
             {
-                if (_resolveStack.Contains(parameter.ParameterType))
-                {
-                    throw new InvalidOperationException(
-                        $"Cyclical dependency detected: {parameter.ParameterType} for {type}");
-                }
+                var checkStackCall = Expression.IfThen(
+                    Expression.Call(
+                        stack,
+                        typeof(Stack<Type>).GetMethod("Contains")!,
+                        Expression.Constant(parameter.ParameterType)
+                    ),
+                    Expression.Throw(
+                        Expression.New(typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) })!,
+                            Expression.Constant($"Cyclical dependency detected: {parameter.ParameterType} for {type}"))
+                    )
+                );
 
-                _resolveStack.Push(parameter.ParameterType);
-                var instance = GetRequiredService(parameter.ParameterType);
+                var pushCall = Expression.Call(stack, typeof(Stack<Type>).GetMethod("Push")!,
+                    Expression.Constant(parameter.ParameterType));
 
-                if (instance == null)
-                {
-                    throw new InvalidOperationException($"Failed to create instance for Type: {type}");
-                }
+                var getServiceCall = Expression.Call(container,
+                    typeof(ServiceContainer).GetMethod("GetRequiredService")!, container);
 
-                parameterInstances.Add(instance);
+                var throwIfNull = Expression.IfThen(
+                    Expression.Equal(getServiceCall, Expression.Constant(null)),
+                    Expression.Throw(
+                        Expression.New(typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) })!,
+                            Expression.Constant($"Failed to create instance for Type: {type}"))
+                    )
+                );
+
+                var block = Expression.Block(checkStackCall, pushCall, getServiceCall, throwIfNull);
+                parameterExpressions.Add(block);
             }
 
-            var thisExpr = Expression.Constant(this); 
-            var resolveStackField = Expression.Field(thisExpr, "_resolveStack");
+            var newExpression = Expression.New(foundConstructor, parameterExpressions);
 
-            var constructor = Expression.Constant(foundConstructor);
-            var stack = Expression.Variable(typeof(Stack<Type>), "stack");
-            var parameters = Expression.Variable(typeof(ParameterInfo), "parameters");
+            try
+            {
+                var lambda = Expression.Lambda<Func<Stack<Type>, ServiceContainer, object>>(newExpression, stack, container);
+                _expressionGetters[type] = lambda.Compile();
+            }
+            catch (Exception ex)
+            {
+                var m = ex;
+            }
 
-            var getParametersCall =
-                Expression.Call(constructor, nameof(ConstructorInfo.GetParameters), Type.EmptyTypes);
-            var assignParameters = Expression.Assign(parameters, getParametersCall);
-            var assignStack = Expression.Assign(stack, resolveStackField);
-
-            var 
-
-
-
-
-            var containsTest = Expression.Call(stack, nameof(Stack.Contains), )
-            var containsCondition = Expression.Condition()
-
-
-
-
-            var service = Expression.Constant(constructor.Invoke(parameterInstances.ToArray()));
-//            var instance = Expression.Constant(constructor.Invoke())
-
-            return null;
+            return _expressionGetters[type].Invoke(_resolveStack, this);
         }
 
         private ConstructorInfo GetMostSuitableConstructor(Type type)
