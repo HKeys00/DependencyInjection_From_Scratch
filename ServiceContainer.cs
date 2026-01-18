@@ -42,7 +42,7 @@ namespace DependencyInjection_From_Scratch
         public void AddSingleton<TInterface, TImplementation>() where TImplementation : class
         {
             AddService<TInterface, TImplementation>(ServiceLifetimes.Singleton);
-            _singletonInstances.Add(typeof(TImplementation), CreateServiceInstanceReflection(typeof(TImplementation)));
+            _singletonInstances.Add(typeof(TImplementation), CreateServiceInstanceExpression(typeof(TImplementation)));
         }
         public void AddSingleton<TImplementation>() where TImplementation : class
         {
@@ -174,11 +174,12 @@ namespace DependencyInjection_From_Scratch
 
             foreach (var parameter in param)
             {
+                var paramType = Expression.Constant(parameter.ParameterType);
                 var checkStackCall = Expression.IfThen(
                     Expression.Call(
                         stack,
                         typeof(Stack<Type>).GetMethod("Contains")!,
-                        Expression.Constant(parameter.ParameterType)
+                        paramType
                     ),
                     Expression.Throw(
                         Expression.New(typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) })!,
@@ -186,21 +187,23 @@ namespace DependencyInjection_From_Scratch
                     )
                 );
 
-                var pushCall = Expression.Call(stack, typeof(Stack<Type>).GetMethod("Push")!,
-                    Expression.Constant(parameter.ParameterType));
+                var pushCall = Expression.Call(stack, typeof(Stack<Type>).GetMethod("Push")!, paramType);
 
+                var serviceResult = Expression.Variable(typeof(object), "serviceResult");
                 var getServiceCall = Expression.Call(container,
-                    typeof(ServiceContainer).GetMethod("GetRequiredService")!, container);
-
+                    typeof(ServiceContainer).GetMethod("GetRequiredService", BindingFlags.NonPublic | BindingFlags.Instance)!, paramType);
+                var assignResult = Expression.Assign(serviceResult, getServiceCall);
+                
                 var throwIfNull = Expression.IfThen(
-                    Expression.Equal(getServiceCall, Expression.Constant(null)),
+                    Expression.Equal(serviceResult, Expression.Constant(null)),
                     Expression.Throw(
                         Expression.New(typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) })!,
                             Expression.Constant($"Failed to create instance for Type: {type}"))
                     )
                 );
 
-                var block = Expression.Block(checkStackCall, pushCall, getServiceCall, throwIfNull);
+                var convertResult = Expression.Convert(serviceResult, parameter.ParameterType);
+                var block = Expression.Block(new[] { serviceResult }, checkStackCall, pushCall, getServiceCall, assignResult, throwIfNull, convertResult);
                 parameterExpressions.Add(block);
             }
 
